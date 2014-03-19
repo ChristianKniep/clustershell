@@ -74,31 +74,31 @@ class Display(object):
         If `color' boolean flag is not specified, it is auto detected
         according to options.whencolor.
         """
-        if options.diff:
+        if options.get('--diff'):
             self._print_buffer = self._print_diff
         else:
             self._print_buffer = self._print_content
         self._display = self._print_buffer
         self._diffref = None
         # diff implies at least -b
-        self.gather = options.gatherall or options.gather or options.diff
+        self.gather = options.get('--all') or options.get('--dashbak') or options.get('--diff')
         # check parameter combinaison
-        if options.diff and options.line_mode:
+        if options.get('--diff') and options.get('-L'):
             raise ValueError("diff not supported in line_mode")
-        self.line_mode = options.line_mode
-        self.label = options.label
-        self.regroup = options.regroup
-        self.groupsource = options.groupsource
-        self.noprefix = options.groupbase
+        self.line_mode = options.get('-L')
+        self.label = options.get('-N')
+        self.regroup = options.get('--regroup')
+        self.groupsource = options.get('--groupsource')
+        self.noprefix = options.get('--groupbase')
         # display may change when 'max return code' option is set
         self.maxrc = getattr(options, 'maxrc', False)
 
         if color is None:
             # Should we use ANSI colors?
             color = False
-            if not options.whencolor or options.whencolor == "auto":
+            if not options.get('--color') or options.get('--color') == "auto":
                 color = sys.stdout.isatty()
-            elif options.whencolor == "always":
+            elif options.get('-color') == "always":
                 color = True
 
         self._color = color
@@ -125,11 +125,11 @@ class Display(object):
         else:
             self.node_count = True
             self.verbosity = VERB_STD
-            if hasattr(options, 'quiet') and options.quiet:
+            if options.get('--quiet'):
                 self.verbosity = VERB_QUIET
-            if hasattr(options, 'verbose') and options.verbose:
+            if options.get('--verbose'):
                 self.verbosity = VERB_VERB
-            if hasattr(options, 'debug') and options.debug:
+            if options.get('--debug'):
                 self.verbosity = VERB_DEBUG
 
     def flush(self):

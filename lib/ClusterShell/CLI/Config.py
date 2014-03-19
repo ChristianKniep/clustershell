@@ -82,24 +82,24 @@ class ClushConfig(ConfigParser.ConfigParser, object):
         self.read(files)
 
         # Apply command line overrides
-        if options.quiet:
+        if options.get('--quiet'):
             self._set_main("verbosity", VERB_QUIET)
-        if options.verbose:
+        if options.get('--verbose'):
             self._set_main("verbosity", VERB_VERB)
-        if options.debug:
+        if options.get('--debug'):
             self._set_main("verbosity", VERB_DEBUG)
-        if options.fanout:
-            self._set_main("fanout", options.fanout)
-        if options.user:
-            self._set_main("ssh_user", options.user)
-        if options.options:
-            self._set_main("ssh_options", options.options)
-        if options.connect_timeout:
-            self._set_main("connect_timeout", options.connect_timeout)
-        if options.command_timeout:
-            self._set_main("command_timeout", options.command_timeout)
-        if options.whencolor:
-            self._set_main("color", options.whencolor)
+        if options.get('--fanout'):
+            self._set_main("fanout", options.get('--fanout'))
+        if options.get('--user'):
+            self._set_main("ssh_user", options.get('--user'))
+        if options.get('--options'):
+            self._set_main("ssh_options", options.get('--options'))
+        if options.get('--connect_timeout'):
+            self._set_main("connect_timeout", options.get('--connect_timeout'))
+        if options.get('--command_timeout'):
+            self._set_main("command_timeout", options.get('--command_timeout'))
+        if options.get('--color'):
+            self._set_main("color", options.get('--color'))
 
     def _set_main(self, option, value):
         """Set given option/value pair in the Main section."""

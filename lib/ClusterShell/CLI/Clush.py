@@ -34,6 +34,54 @@
 """
 execute cluster commands in parallel
 
+Usage:
+    clush [options] <command>...
+
+Options:
+  --version                         show program's version number and exit
+  -h, --help                        show this help message and exit
+  -s, --groupsource GROUPSOURCE     optional groups.conf(5) group source to use
+  --nostdin                         don't watch for possible input from stdin
+
+  Selecting target nodes:
+    -w NODES            nodes where to run the command
+    -x NODES            exclude nodes from the node list
+    -a, --all           run command on all nodes
+    -g, --group GROUP   run command on a group of nodes
+    -X GROUP            exclude nodes from this group
+
+  Output behaviour:
+    -q, --quiet         be quiet, print essential output only
+    -v, --verbose       be verbose, print informative messages
+    -d, --debug         output more messages for debugging purpose
+    -G, --groupbase     do not display group source prefix
+    -L                  disable header block and order output by nodes
+    -N                  disable labeling of command line
+    -b, --dshbak        gather nodes with same output
+    -B                  like -b but including standard error
+    -r, --regroup       fold nodeset using node groups
+    -S                  return the largest of command return codes
+    --color=WHENCOLOR   whether to use ANSI colors (never, always or auto)
+    --diff              show diff between gathered outputs
+
+  File copying:
+    -c, --copy          copy local file or directory to remote nodes
+    --rcopy             copy file or directory from remote nodes
+    --dest=DEST_PATH    destination file or directory on the nodes
+    -p                  preserve modification times and modes
+
+  Ssh/Tree options:
+    -f, --fanout=FANOUT
+                        use a specified fanout
+    -l, --user=USER
+                        execute remote command as user
+    -o, --options=OPTIONS
+                        can be used to give ssh options
+    -t, --connect_timeout=CONNECT_TIMEOUT
+                        limit time to connect to a node
+    -u, --command_timeout=COMMAND_TIMEOUT
+                        limit time for command to run on the node
+
 clush is an utility program to run commands on a cluster which benefits
 from the ClusterShell library and its Ssh worker. It features an
 integrated output results gathering system (dshbak-like), can get node
@@ -52,10 +100,12 @@ import sys
 import signal
 import threading
 
+from docopt import docopt
+
 from ClusterShell.CLI.Config import ClushConfig, ClushConfigError
 from ClusterShell.CLI.Display import Display
 from ClusterShell.CLI.Display import VERB_QUIET, VERB_STD, VERB_VERB, VERB_DEBUG
-from ClusterShell.CLI.OptionParser import OptionParser
+#from ClusterShell.CLI.OptionParser import OptionParser
 from ClusterShell.CLI.Error import GENERIC_ERRORS, handle_generic_error
 from ClusterShell.CLI.Utils import NodeSet, bufnodeset_cmp
 
@@ -665,22 +715,9 @@ def main():
     # Default values
     nodeset_base, nodeset_exclude = NodeSet(), NodeSet()
 
-    #
-    # Argument management
-    #
-    usage = "%prog [options] command"
 
-    parser = OptionParser(usage)
-
-    parser.add_option("--nostdin", action="store_true", dest="nostdin",
-                      help="don't watch for possible input from stdin")
-
-    parser.install_nodes_options()
-    parser.install_display_options(verbose_options=True)
-    parser.install_filecopy_options()
-    parser.install_ssh_options()
-
-    (options, args) = parser.parse_args()
+    options = docopt(__doc__)
+    print options
 
     #
     # Load config file and apply overrides
@@ -689,10 +726,10 @@ def main():
 
     # Should we use ANSI colors for nodes?
     if config.color == "auto":
-        color = sys.stdout.isatty() and (options.gatherall or \
+        color = sys.stdout.isatty() and (options.get('--gatherall') or \
                                          sys.stderr.isatty())
     else:
-        color = config.color == "always"
+        color = config.get('--color') == "always"
 
     try:
         # Create and configure display object.
@@ -703,31 +740,32 @@ def main():
     #
     # Compute the nodeset
     #
-    if options.nodes:
-        nodeset_base = NodeSet.fromlist(options.nodes)
-    if options.exclude:
-        nodeset_exclude = NodeSet.fromlist(options.exclude)
+    if options.get('-w'):
+        nodeset_base = NodeSet.fromlist(options.get('-w'))
+    if options.get('-x'):
+        nodeset_exclude = NodeSet.fromlist(options.get('-x'))
 
-    if options.groupsource:
+    option_groupsource = options.get('--groupsource')
+    if option_groupsource:
         # Be sure -a/g -s source work as espected.
-        RESOLVER_STD_GROUP.default_sourcename = options.groupsource
+        RESOLVER_STD_GROUP.default_sourcename = option_groupsource
 
     # FIXME: add public API to enforce engine
-    Task._std_default['engine'] = options.engine
+    Task._std_default['engine'] = options.get('--engine')
 
     # Do we have nodes group?
     task = task_self()
     task.set_info("debug", config.verbosity >= VERB_DEBUG)
     if config.verbosity == VERB_DEBUG:
         RESOLVER_STD_GROUP.set_verbosity(1)
-    if options.nodes_all:
+    if options.get('--all'):
         all_nodeset = NodeSet.fromall()
         display.vprint(VERB_DEBUG, "Adding nodes from option -a: %s" % \
                                    all_nodeset)
         nodeset_base.add(all_nodeset)
 
-    if options.group:
-        grp_nodeset = NodeSet.fromlist(options.group,
+    if options.get('--group'):
+        grp_nodeset = NodeSet.fromlist(options.get('--group'),
                                        resolver=RESOLVER_NOGROUP)
         for grp in grp_nodeset:
             addingrp = NodeSet("@" + grp)
@@ -735,8 +773,8 @@ def main():
                 "Adding nodes from option -g %s: %s" % (grp, addingrp))
             nodeset_base.update(addingrp)
 
-    if options.exgroup:
-        grp_nodeset = NodeSet.fromlist(options.exgroup,
+    if options.get('-x'):
+        grp_nodeset = NodeSet.fromlist(options.get('-x'),
                                        resolver=RESOLVER_NOGROUP)
         for grp in grp_nodeset:
             removingrp = NodeSet("@" + grp)
@@ -756,8 +794,9 @@ def main():
     # Task management
     #
     # check for clush interactive mode
+    args = options.get('<command>')
     interactive = not len(args) and \
-                  not (options.copy or options.rcopy)
+                  not (options.get('--copy') or options.get('--rcopy'))
     # check for foreground ttys presence (input)
     stdin_isafgtty = sys.stdin.isatty() and \
         os.tcgetpgrp(sys.stdin.fileno()) == os.getpgrp()
@@ -767,15 +806,15 @@ def main():
         # switch to non-interactive + disable ssh pseudo-tty
         interactive = False
         # SSH: disable pseudo-tty allocation (-T)
-        ssh_options = config.ssh_options or ''
+        ssh_options = config.get('--options') or ''
         ssh_options += ' -T'
         config._set_main("ssh_options", ssh_options)
-    if options.nostdin and interactive:
+    if options.get('--nostdin') and interactive:
         parser.error("illegal option `--nostdin' in that case")
 
     # Force user_interaction if Clush._f_user_interaction for test purposes
     user_interaction = hasattr(sys.modules[__name__], '_f_user_interaction')
-    if not options.nostdin:
+    if not options.get('--nostdin'):
         # Try user interaction: check for foreground ttys presence (ouput)
         stdout_isafgtty = sys.stdout.isatty() and \
             os.tcgetpgrp(sys.stdout.fileno()) == os.getpgrp()
@@ -794,7 +833,7 @@ def main():
 
     task.excepthook = sys.excepthook
     task.set_default("USER_stdin_worker", not (sys.stdin.isatty() or \
-                                               options.nostdin or \
+                                               options.get('--nostdin') or \
                                                user_interaction))
     display.vprint(VERB_DEBUG, "Create STDIN worker: %s" % \
                                task.default("USER_stdin_worker"))
@@ -806,18 +845,19 @@ def main():
 
     task.set_info("fanout", config.fanout)
 
-    if options.topofile:
+    options_topofile = options.get('--topology')
+    if options.get('--topology'):
         if config.verbosity >= VERB_VERB:
             print Display.COLOR_RESULT_FMT % \
                 "Enabling TREE MODE (technology preview)"
         task.set_default("auto_tree", True)
-        task.set_topology(options.topofile)
+        task.set_topology(options.get('--topology'))
 
-    if options.grooming_delay:
+    if options.get('-Q'):
         if config.verbosity >= VERB_VERB:
             print Display.COLOR_RESULT_FMT % ("Grooming delay: %f" % \
-                                              options.grooming_delay)
-        task.set_info("grooming_delay", options.grooming_delay)
+                                              options.get('-Q'))
+        task.set_info("grooming_delay", options.get('-Q'))
 
     if config.ssh_user:
         task.set_info("ssh_user", config.ssh_user)
@@ -838,7 +878,7 @@ def main():
     task.set_info("command_timeout", command_timeout)
 
     # Enable stdout/stderr separation
-    task.set_default("stderr", not options.gatherall)
+    task.set_default("stderr", not options.get('-B'))
 
     # Disable MsgTree buffering if not gathering outputs
     task.set_default("stdout_msgtree", display.gather or display.line_mode)
@@ -856,16 +896,16 @@ def main():
     task.set_default("USER_interactive", interactive)
     task.set_default("USER_running", False)
 
-    if (options.copy or options.rcopy) and not args:
+    if (options.get('--copy') or options.get('--rcopy')) and not args:
         parser.error("--[r]copy option requires at least one argument")
-    if options.copy:
-        if not options.dest_path:
+    if options.get('--copy'):
+        if not options.get('--dest'):
             options.dest_path = os.path.dirname(os.path.abspath(args[0]))
-        op = "copy sources=%s dest=%s" % (args, options.dest_path)
-    elif options.rcopy:
-        if not options.dest_path:
-            options.dest_path = os.path.dirname(os.path.abspath(args[0]))
-        op = "rcopy sources=%s dest=%s" % (args, options.dest_path)
+        op = "copy sources=%s dest=%s" % (args, options.get('--dest'))
+    elif options.get('--rcopy'):
+        if not options.get('--dest'):
+            options.set('--dest', os.path.dirname(os.path.abspath(args[0])))
+        op = "rcopy sources=%s dest=%s" % (args, options.get('--dest'))
     else:
         op = "command=\"%s\"" % ' '.join(args)
 
@@ -877,12 +917,12 @@ def main():
                                                 task.info("command_timeout"),
                                                 op))
     if not task.default("USER_interactive"):
-        if options.copy:
-            run_copy(task, args, options.dest_path, nodeset_base, timeout,
+        if options.get('--copy'):
+            run_copy(task, args, options.get('--dest'), nodeset_base, timeout,
                      options.preserve_flag, display)
-        elif options.rcopy:
-            run_rcopy(task, args, options.dest_path, nodeset_base, timeout,
-                      options.preserve_flag, display)
+        elif options.get('--rcopy'):
+            run_rcopy(task, args, options.get('--dest'), nodeset_base, timeout,
+                      options.get('-p'), display)
         else:
             run_command(task, ' '.join(args), nodeset_base, timeout, display)
 
@@ -894,7 +934,7 @@ def main():
         clush_exit(1, task)
 
     rc = 0
-    if options.maxrc:
+    if options.get('-S'):
         # Instead of clush return code, return commands retcode
         rc = task.max_retcode()
         if task.num_timeout() > 0:
